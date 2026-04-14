@@ -14,12 +14,13 @@ st.set_page_config(page_title="急診專師協助派發系統", page_icon="🏥"
 # ==========================================
 # 🛑 LINE 設定區 (精準私訊版)
 # ==========================================
-LIFF_ID = "請貼上您的_LIFF_ID"
-LINE_CLIENT_ID = "請貼上您的_Channel_ID"          
-LINE_CLIENT_SECRET = "請貼上您的_Channel_Secret"  
-REDIRECT_URI = "請貼上您的_Streamlit_網址"        
+LIFF_ID = "2009793049-K0kqE1ou"
+LINE_CLIENT_ID = "2009793049"          
+LINE_CLIENT_SECRET = "330e5ad65f39f344b419d75e2e94405f"  # 例如: "abcdef1234567890abcdef"  
+REDIRECT_URI = "https://np-system-for-line-26ht3v7pgusawfcswn2ykb.streamlit.app/"        
 
-LINE_CHANNEL_ACCESS_TOKEN = "請貼上您的_Channel_Access_Token"
+# 推播專用 Token (從 Messaging API 頁籤取得)
+LINE_CHANNEL_ACCESS_TOKEN = "6KAEqQhUPMhYhq1YYMS8ftPxOyJYjQbiqQVq1T/Y7RDo3MHXEVBWeBDHXOu0go4Qpzat7Blp8jM3lj/TSvCPcBsdSgOoQFCUIrIlPDZq+NrRCVL5cpM7I+jI5F1gGPm0GR6ZancIIRy+1RPQi8MAZwdB04t89/1O/w1cDnyilFU="
 # ==========================================
 
 # --- 檔案庫設定 ---
