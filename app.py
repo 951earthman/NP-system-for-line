@@ -12,7 +12,7 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="急診專師協助派發系統", page_icon="🏥", layout="wide")
 
 # ==========================================
-# 🛑 LINE 設定區 (精準私訊版)
+# 🛑 LINE 設定區 (登入與推播)
 # ==========================================
 LIFF_ID = "2009793049-K0kqE1ou"
 LINE_CLIENT_ID = "2009793049"          
@@ -26,7 +26,7 @@ LINE_CHANNEL_ACCESS_TOKEN = "6KAEqQhUPMhYhq1YYMS8ftPxOyJYjQbiqQVq1T/Y7RDo3MHXEVB
 # --- 檔案庫設定 ---
 DATA_FILE = "task_data.json"
 ONLINE_FILE = "online_users.json"
-USER_ID_MAP_FILE = "user_id_map.json"
+USER_ID_MAP_FILE = "user_id_map.json" # 用來記憶 綽號 <-> LINE User ID
 
 BED_DATA_COMPLEX = {
     "留觀(OBS)": {"OBS 1": ["1", "2", "3", "5", "6", "7", "8", "9", "10", "35", "36", "37", "38"], "OBS 2": ["11", "12", "13", "15", "16", "17", "18", "19", "20", "21", "22", "23"], "OBS 3": ["25", "26", "27", "28", "29", "30", "31", "32", "33", "39"]},
@@ -74,13 +74,26 @@ def remove_online_status(nickname):
     users = load_data(ONLINE_FILE, {})
     if nickname in users: del users[nickname]; save_data(users, ONLINE_FILE)
 
-# --- 核心：LINE 雙向推播與零點擊登入功能 ---
+# --- 🎯 核心：LINE 雙向推播與除錯雷達 ---
 def send_line_push(target_id, message_text):
-    if not LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_ACCESS_TOKEN.startswith("請貼上"): return
+    if not LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_ACCESS_TOKEN.startswith("請貼上"): 
+        st.error("⚠️ 無法推播：您尚未在程式碼設定 LINE_CHANNEL_ACCESS_TOKEN！")
+        return
+    if not target_id:
+        st.warning("⚠️ 無法推播：系統不知道您的 LINE ID。請確認您是用【LINE 一鍵登入】進入系統的！")
+        return
+        
     headers = {"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}", "Content-Type": "application/json"}
     payload = {"to": target_id, "messages": [{"type": "text", "text": message_text}]}
-    try: requests.post("https://api.line.me/v2/bot/message/push", headers=headers, json=payload)
-    except Exception as e: print(f"LINE 推播失敗: {e}")
+    
+    try: 
+        res = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, json=payload)
+        if res.status_code == 200:
+            st.toast("✅ LINE 推播通知已成功發送！", icon="📱")
+        else:
+            st.error(f"❌ LINE 推播失敗 (錯誤碼 {res.status_code})。請確認您已將推播機器人加為好友！")
+    except Exception as e: 
+        st.error(f"❌ 網路連線錯誤，推播失敗: {e}")
 
 def notify_np_new_task(task):
     # 深層連結：標記這是一個任務連結，並將登入身分強制帶入為「專科護理師」
@@ -99,23 +112,23 @@ def notify_np_new_task(task):
         f"🔗 點此一鍵登入並接單:\n{direct_link}"
     )
     
-    # 🎯【亮點更新】：找出所有在線上的專科護理師，並發送私訊給他們！
+    # 測試期間：發送給當下登入的使用者自己 (確保您能看到測試結果)
+    if st.session_state.line_userId:
+        send_line_push(st.session_state.line_userId, msg)
+        
+    # 正式邏輯：發送給目前線上的所有專師
     online_users = load_data(ONLINE_FILE, {})
     user_map = load_data(USER_ID_MAP_FILE, {})
-    
     for nickname, info in online_users.items():
-        if info.get("role") == "專科護理師":
-            # 找到這位專師的 LINE ID
+        if info.get("role") == "專科護理師" and nickname != st.session_state.nickname:
             line_id = user_map.get(nickname)
-            if line_id:
-                send_line_push(line_id, msg)
+            if line_id: send_line_push(line_id, msg)
 
 def notify_doctor_task_completed(task):
     user_map = load_data(USER_ID_MAP_FILE, {})
     doc_line_id = user_map.get(task['requester'])
     
     if doc_line_id:
-        # 深層連結：將登入身分設定回原本派單的醫師/護理師
         auth_params = {
             "response_type": "code", "client_id": LINE_CLIENT_ID,
             "redirect_uri": REDIRECT_URI, "state": f"task_{task['id']}_role_{task['requester_role']}", "scope": "profile"
@@ -131,6 +144,8 @@ def notify_doctor_task_completed(task):
             f"🔗 點此一鍵登入查看:\n{direct_link}"
         )
         send_line_push(doc_line_id, msg)
+    else:
+        st.warning("⚠️ 找不到原派發者的 LINE ID，無法傳送完成通知。")
 
 if "known_task_ids" not in st.session_state: st.session_state.known_task_ids = set([tk['id'] for tk in load_data(DATA_FILE, [])])
 
@@ -165,7 +180,6 @@ def login_interface():
         if LINE_CLIENT_ID.startswith("請貼上"):
             st.error("⚠️ 開發者請先在程式碼上方填入 LINE 的相關金鑰！")
         else:
-            # 將選擇的身分包裝在 state 參數裡傳送
             auth_params = {
                 "response_type": "code", "client_id": LINE_CLIENT_ID,
                 "redirect_uri": REDIRECT_URI, "state": f"login_role_{line_role_input}", "scope": "profile"
@@ -175,7 +189,7 @@ def login_interface():
             st.markdown(btn_html, unsafe_allow_html=True)
 
         st.markdown("---")
-        st.subheader("⌨️ 方式二：手動輸入 (傳統登入)")
+        st.subheader("⌨️ 方式二：手動輸入 (無法使用推播功能)")
         nickname_input = st.text_input("手動輸入新綽號 (必填)")
         role_input = st.radio("傳統登入身分選擇", ["護理師", "醫師", "專科護理師"], horizontal=True)
         if st.button("🚀 手動登入", use_container_width=True, type="primary"):
@@ -356,12 +370,11 @@ def whiteboard_interface():
             dfc['complete_time'] = dfc['complete_time'].str[11:16]; dfc.columns = ['完成時間', '位置', '任務', '專師', '派發者', '回報']
             st.dataframe(dfc.sort_values(by='完成時間', ascending=False), use_container_width=True, hide_index=True)
 
-# --- 主程式入口 (處理 OAuth 重新導向與動態身分) ---
+# --- 主程式入口 ---
 def main():
-    # 攔截 LINE OAuth 的回傳 Code
     if "code" in st.query_params and not st.session_state.is_logged_in:
         code = st.query_params["code"]
-        state = st.query_params.get("state", "") # 抓取暗號 (包含任務ID與身分)
+        state = st.query_params.get("state", "") 
         
         token_url = "https://api.line.me/oauth2/v2.1/token"
         data = {
@@ -377,7 +390,6 @@ def main():
                 st.session_state.nickname = profile_data.get("displayName")
                 st.session_state.line_userId = profile_data.get("userId") 
                 
-                # 預設身分，並嘗試從暗號中解析出正確身分
                 assigned_role = "護理師" 
                 target_task_id = None
                 
@@ -395,7 +407,6 @@ def main():
                 st.session_state.role = assigned_role
                 st.session_state.is_logged_in = True
                 
-                # 登入成功後，把名字和 LINE ID 綁定存起來
                 user_map = load_data(USER_ID_MAP_FILE, {})
                 user_map[st.session_state.nickname] = st.session_state.line_userId
                 save_data(user_map, USER_ID_MAP_FILE)
