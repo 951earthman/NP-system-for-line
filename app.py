@@ -16,7 +16,7 @@ st.set_page_config(page_title="Emergency Orderly System", page_icon="🏥", layo
 # ==========================================
 LINE_CLIENT_ID = "2009793049"          # 例如: "1234567890"
 LINE_CLIENT_SECRET = "330e5ad65f39f344b419d75e2e94405f"  # 例如: "abcdef1234567890abcdef"
-REDIRECT_URI = "https://np-system-for-line-26ht3v7pgusawfcswn2ykb.streamlit.app/"        # 例如: "https://np-system-for-line.streamlit.app/" (要跟後台的 Callback URL 一模一樣)
+REDIRECT_URI = "https://np-system-for-line-26ht3v7pgusawfcswn2ykb.streamlit.app/"
 # ==========================================
 
 # --- 語系切換輔助函數 ---
@@ -134,7 +134,7 @@ def login_interface():
     
     with st.container(border=True):
         st.subheader(t("💡 方式一：LINE 快速登入 (推薦)", "💡 Method 1: LINE Login"))
-        st.caption(t("點擊下方按鈕，將引導至 LINE 進行安全驗證。測試期間將預設登入為『Nurse (護理師)』。", "Redirects to LINE for secure login."))
+        st.caption(t("點擊下方按鈕，將開啟新分頁引導至 LINE 進行安全驗證。測試期間將預設登入為『Nurse (護理師)』。", "Redirects to LINE in a new tab for secure login."))
         
         # 建立 LINE 授權網址
         if LINE_CLIENT_ID == "請貼上您的_Channel_ID":
@@ -149,9 +149,9 @@ def login_interface():
             }
             auth_url = f"https://access.line.me/oauth2/v2.1/authorize?{urllib.parse.urlencode(auth_params)}"
             
-            # 製作精美的跳轉按鈕 (強制破框 _top，避開 Streamlit 沙盒阻擋)
+            # 製作精美的跳轉按鈕 (改為 _blank 開啟新分頁，徹底解決沙盒阻擋)
             btn_html = f"""
-            <a href="{auth_url}" target="_top" style="text-decoration: none;">
+            <a href="{auth_url}" target="_blank" style="text-decoration: none;">
                 <div style="background-color: #06C755; color: white; padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; font-size: 18px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                     🟢 點我使用 LINE 一鍵登入
                 </div>
