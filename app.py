@@ -12,21 +12,20 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="急診專師協助派發系統", page_icon="🏥", layout="wide")
 
 # ==========================================
-# 🛑 LINE 設定區 (登入與推播)
+# 🛑 LINE 設定區 (精準私訊版)
 # ==========================================
-LIFF_ID = "2009793049-K0kqE1ou"
-LINE_CLIENT_ID = "2009793049"          
-LINE_CLIENT_SECRET = "330e5ad65f39f344b419d75e2e94405f"  # 例如: "abcdef1234567890abcdef"  
-REDIRECT_URI = "https://np-system-for-line-26ht3v7pgusawfcswn2ykb.streamlit.app/"        
+LIFF_ID = "請貼上您的_LIFF_ID"
+LINE_CLIENT_ID = "請貼上您的_Channel_ID"          
+LINE_CLIENT_SECRET = "請貼上您的_Channel_Secret"  
+REDIRECT_URI = "請貼上您的_Streamlit_網址"        
 
-# 推播專用 Token (從 Messaging API 頁籤取得)
-LINE_CHANNEL_ACCESS_TOKEN = "6KAEqQhUPMhYhq1YYMS8ftPxOyJYjQbiqQVq1T/Y7RDo3MHXEVBWeBDHXOu0go4Qpzat7Blp8jM3lj/TSvCPcBsdSgOoQFCUIrIlPDZq+NrRCVL5cpM7I+jI5F1gGPm0GR6ZancIIRy+1RPQi8MAZwdB04t89/1O/w1cDnyilFU="
+LINE_CHANNEL_ACCESS_TOKEN = "請貼上您的_Channel_Access_Token"
 # ==========================================
 
 # --- 檔案庫設定 ---
 DATA_FILE = "task_data.json"
 ONLINE_FILE = "online_users.json"
-USER_ID_MAP_FILE = "user_id_map.json" # 用來記憶 綽號 <-> LINE User ID
+USER_ID_MAP_FILE = "user_id_map.json"
 
 BED_DATA_COMPLEX = {
     "留觀(OBS)": {"OBS 1": ["1", "2", "3", "5", "6", "7", "8", "9", "10", "35", "36", "37", "38"], "OBS 2": ["11", "12", "13", "15", "16", "17", "18", "19", "20", "21", "22", "23"], "OBS 3": ["25", "26", "27", "28", "29", "30", "31", "32", "33", "39"]},
@@ -83,10 +82,10 @@ def send_line_push(target_id, message_text):
     except Exception as e: print(f"LINE 推播失敗: {e}")
 
 def notify_np_new_task(task):
-    # 零點擊登入黑科技：把任務 ID 藏在 state 參數裡
+    # 深層連結：標記這是一個任務連結，並將登入身分強制帶入為「專科護理師」
     auth_params = {
         "response_type": "code", "client_id": LINE_CLIENT_ID,
-        "redirect_uri": REDIRECT_URI, "state": f"task_{task['id']}", "scope": "profile"
+        "redirect_uri": REDIRECT_URI, "state": f"task_{task['id']}_role_專科護理師", "scope": "profile"
     }
     direct_link = f"https://access.line.me/oauth2/v2.1/authorize?{urllib.parse.urlencode(auth_params)}"
     
@@ -95,21 +94,30 @@ def notify_np_new_task(task):
         f"📍 位置: {task['bed']}\n"
         f"📝 任務: {task['task_type']}\n"
         f"📋 說明: {task['details']}\n"
-        f"👨‍⚕️ 派發: {task['requester']}\n"
+        f"👨‍⚕️ 派發: {task['requester']} ({task['requester_role']})\n"
         f"🔗 點此一鍵登入並接單:\n{direct_link}"
     )
-    # 測試期間：發送給當下登入的使用者自己
-    if st.session_state.line_userId:
-        send_line_push(st.session_state.line_userId, msg)
+    
+    # 🎯【亮點更新】：找出所有在線上的專科護理師，並發送私訊給他們！
+    online_users = load_data(ONLINE_FILE, {})
+    user_map = load_data(USER_ID_MAP_FILE, {})
+    
+    for nickname, info in online_users.items():
+        if info.get("role") == "專科護理師":
+            # 找到這位專師的 LINE ID
+            line_id = user_map.get(nickname)
+            if line_id:
+                send_line_push(line_id, msg)
 
 def notify_doctor_task_completed(task):
     user_map = load_data(USER_ID_MAP_FILE, {})
     doc_line_id = user_map.get(task['requester'])
     
     if doc_line_id:
+        # 深層連結：將登入身分設定回原本派單的醫師/護理師
         auth_params = {
             "response_type": "code", "client_id": LINE_CLIENT_ID,
-            "redirect_uri": REDIRECT_URI, "state": f"task_{task['id']}", "scope": "profile"
+            "redirect_uri": REDIRECT_URI, "state": f"task_{task['id']}_role_{task['requester_role']}", "scope": "profile"
         }
         direct_link = f"https://access.line.me/oauth2/v2.1/authorize?{urllib.parse.urlencode(auth_params)}"
         
@@ -143,19 +151,23 @@ def checkbox_matrix(options, num_columns=4):
             if st.checkbox(option, key=f"matrix_{option}"): selected.append(option)
     return selected
 
-# --- 🚀 穩定的 LINE OAuth 登入介面 ---
+# --- 🚀 正式版登入介面 ---
 def login_interface():
     st.header("🔑 系統登入")
     with st.container(border=True):
-        st.subheader("💡 方式一：LINE 快速登入 (推薦)")
-        st.caption("點擊下方按鈕，開啟新分頁進行安全驗證。")
+        st.subheader("💡 方式一：LINE 快速登入 (正式環境)")
+        st.caption("請先選擇您的身分，再點擊下方按鈕進行安全驗證登入。")
+        
+        # 動態選擇 LINE 登入身分
+        line_role_input = st.radio("👇 請先選擇您的身分", ["護理師", "醫師", "專科護理師"], horizontal=True, key="line_role_selector")
         
         if LINE_CLIENT_ID.startswith("請貼上"):
             st.error("⚠️ 開發者請先在程式碼上方填入 LINE 的相關金鑰！")
         else:
+            # 將選擇的身分包裝在 state 參數裡傳送
             auth_params = {
                 "response_type": "code", "client_id": LINE_CLIENT_ID,
-                "redirect_uri": REDIRECT_URI, "state": "login_test", "scope": "profile"
+                "redirect_uri": REDIRECT_URI, "state": f"login_role_{line_role_input}", "scope": "profile"
             }
             auth_url = f"https://access.line.me/oauth2/v2.1/authorize?{urllib.parse.urlencode(auth_params)}"
             btn_html = f"""<a href="{auth_url}" target="_blank" style="text-decoration: none;"><div style="background-color: #06C755; color: white; padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; font-size: 18px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">🟢 點我使用 LINE 一鍵登入</div></a>"""
@@ -164,7 +176,7 @@ def login_interface():
         st.markdown("---")
         st.subheader("⌨️ 方式二：手動輸入 (傳統登入)")
         nickname_input = st.text_input("手動輸入新綽號 (必填)")
-        role_input = st.radio("身分選擇", ["護理師", "醫師", "專科護理師"], horizontal=True)
+        role_input = st.radio("傳統登入身分選擇", ["護理師", "醫師", "專科護理師"], horizontal=True)
         if st.button("🚀 手動登入", use_container_width=True, type="primary"):
             if not nickname_input.strip(): st.error("請輸入綽號！")
             else:
@@ -179,7 +191,6 @@ def parse_nlp_to_task(text):
     elif "ng" in text.lower() or "鼻胃管" in text: parsed["type"] = "on NG"
     elif "會診" in text: parsed["type"] = "會診"
     elif "縫" in text: parsed["type"] = "Suture (縫合)"
-    
     import re
     bed_match = re.search(r'(診間|留觀|兒科|急救區).*?(\d+)床?', text)
     if bed_match: parsed["bed"] = f"{bed_match.group(1)} {bed_match.group(2)}床"
@@ -190,7 +201,6 @@ def assigner_interface(view_role="護理師"):
     st.header(f"👋 {view_role} 派發介面")
     if st.session_state.success_message: st.success(st.session_state.success_message); st.session_state.success_message = "" 
     
-    # 【亮點：✨ AI 語音/文字 智能建單】
     with st.expander("✨ AI 語音/文字智能建單 (Beta)", expanded=False):
         st.caption("📱 請點擊下方輸入框，使用手機鍵盤的「麥克風」用語音說出任務。")
         nlp_input = st.text_area("語音/文字輸入區", placeholder="例如：診間二區16床要on Foley，這是急件。")
@@ -241,7 +251,6 @@ def assigner_interface(view_role="護理師"):
         }
         tasks = load_data(DATA_FILE, []); tasks.append(new_task); save_data(tasks, DATA_FILE)
         
-        # 呼叫推播給專師群 (目前設定為發給測試者自己)
         notify_np_new_task(new_task)
         
         st.session_state.success_message = f"✅ 已成功送出 【 {final_bed} 】 的 【{task_type}】 請求！"
@@ -251,7 +260,7 @@ def assigner_interface(view_role="護理師"):
 def np_feedback_dialog(task_id):
     tasks = load_data(DATA_FILE, []); task = next((t for t in tasks if t['id'] == task_id), None)
     if not task: return st.error("找不到資料！")
-    st.write(f"**{task['bed']}** | **{task['task_type']}**\n派發者: {task['requester']}")
+    st.write(f"**{task['bed']}** | **{task['task_type']}**\n派發者: {task['requester']} ({task['requester_role']})")
     feedback_text = st.text_input("回報內容 / 備註", placeholder="已處理完畢...")
 
     if st.button("💾 儲存結案", type="primary", use_container_width=True):
@@ -262,7 +271,6 @@ def np_feedback_dialog(task_id):
                 latest_tasks[i]['handler'] = st.session_state.nickname
                 latest_tasks[i]['feedback'] = feedback_text if feedback_text else "已處理完畢"
                 
-                # 呼叫推播：通知當初派單的醫師
                 notify_doctor_task_completed(latest_tasks[i])
                 
         save_data(latest_tasks, DATA_FILE); reset_to_standby(); st.rerun()
@@ -272,7 +280,6 @@ def np_interface():
     check_for_new_alerts()
     tasks = load_data(DATA_FILE, [])
     
-    # 處理 Deep Link 網址參數 (高亮指定任務)
     target_task_id = st.query_params.get("target_task_id")
     if target_task_id:
         target_task = next((t for t in tasks if t['id'] == target_task_id), None)
@@ -287,7 +294,6 @@ def np_interface():
         st.subheader(f"🔔 待接單 ({len(pending)})")
         if pending:
             for t in pending:
-                # 若是指定任務，加個框框高亮
                 is_target = (t['id'] == target_task_id)
                 with st.container(border=True):
                     if is_target: st.markdown("🌟 **[LINE 指定任務]**")
@@ -316,7 +322,6 @@ def whiteboard_interface():
     check_for_new_alerts()
     tasks = load_data(DATA_FILE, [])
     
-    # 處理 Deep Link
     target_task_id = st.query_params.get("target_task_id")
     if target_task_id:
         target_task = next((t for t in tasks if t['id'] == target_task_id), None)
@@ -350,12 +355,12 @@ def whiteboard_interface():
             dfc['complete_time'] = dfc['complete_time'].str[11:16]; dfc.columns = ['完成時間', '位置', '任務', '專師', '派發者', '回報']
             st.dataframe(dfc.sort_values(by='完成時間', ascending=False), use_container_width=True, hide_index=True)
 
-# --- 主程式入口 (處理 OAuth 重新導向) ---
+# --- 主程式入口 (處理 OAuth 重新導向與動態身分) ---
 def main():
-    # 攔截 LINE OAuth 的回傳 Code 與藏在裡面的任務 ID
+    # 攔截 LINE OAuth 的回傳 Code
     if "code" in st.query_params and not st.session_state.is_logged_in:
         code = st.query_params["code"]
-        state = st.query_params.get("state", "") # 抓取我們藏的任務 ID
+        state = st.query_params.get("state", "") # 抓取暗號 (包含任務ID與身分)
         
         token_url = "https://api.line.me/oauth2/v2.1/token"
         data = {
@@ -370,7 +375,23 @@ def main():
                 profile_data = profile_res.json()
                 st.session_state.nickname = profile_data.get("displayName")
                 st.session_state.line_userId = profile_data.get("userId") 
-                st.session_state.role = "專科護理師" # 測試期間預設為專師
+                
+                # 預設身分，並嘗試從暗號中解析出正確身分
+                assigned_role = "護理師" 
+                target_task_id = None
+                
+                if "_role_" in state:
+                    parts = state.split("_role_")
+                    action_part = parts[0]
+                    assigned_role = parts[1]
+                    if action_part.startswith("task_"):
+                        target_task_id = action_part.replace("task_", "")
+                elif state.startswith("task_"):
+                    target_task_id = state.replace("task_", "")
+                elif state.startswith("login_role_"):
+                    assigned_role = state.replace("login_role_", "")
+                
+                st.session_state.role = assigned_role
                 st.session_state.is_logged_in = True
                 
                 # 登入成功後，把名字和 LINE ID 綁定存起來
@@ -379,11 +400,7 @@ def main():
                 save_data(user_map, USER_ID_MAP_FILE)
                 
                 st.query_params.clear()
-                
-                # 如果暗號裡有任務 ID，就把它秀在網址列讓系統高亮！
-                if state.startswith("task_"):
-                    st.query_params["target_task_id"] = state.replace("task_", "")
-                    
+                if target_task_id: st.query_params["target_task_id"] = target_task_id
                 st.rerun()
             else: st.error("取得 LINE 檔案失敗，請重新登入")
         else: st.error("LINE 登入驗證失敗，請檢查金鑰或 Callback URL")
