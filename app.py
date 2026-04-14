@@ -149,9 +149,9 @@ def login_interface():
             }
             auth_url = f"https://access.line.me/oauth2/v2.1/authorize?{urllib.parse.urlencode(auth_params)}"
             
-            # 製作精美的跳轉按鈕 (點擊後整個網頁跳轉，避開沙盒阻擋)
+            # 製作精美的跳轉按鈕 (強制破框 _top，避開 Streamlit 沙盒阻擋)
             btn_html = f"""
-            <a href="{auth_url}" target="_self" style="text-decoration: none;">
+            <a href="{auth_url}" target="_top" style="text-decoration: none;">
                 <div style="background-color: #06C755; color: white; padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; font-size: 18px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                     🟢 點我使用 LINE 一鍵登入
                 </div>
