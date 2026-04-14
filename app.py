@@ -26,7 +26,7 @@ LINE_CHANNEL_ACCESS_TOKEN = "6KAEqQhUPMhYhq1YYMS8ftPxOyJYjQbiqQVq1T/Y7RDo3MHXEVB
 # --- 檔案庫設定 ---
 DATA_FILE = "task_data.json"
 ONLINE_FILE = "online_users.json"
-USER_ID_MAP_FILE = "user_id_map.json" # 新增：用來記憶 綽號 <-> LINE User ID
+USER_ID_MAP_FILE = "user_id_map.json" # 用來記憶 綽號 <-> LINE User ID
 
 BED_DATA_COMPLEX = {
     "留觀(OBS)": {"OBS 1": ["1", "2", "3", "5", "6", "7", "8", "9", "10", "35", "36", "37", "38"], "OBS 2": ["11", "12", "13", "15", "16", "17", "18", "19", "20", "21", "22", "23"], "OBS 3": ["25", "26", "27", "28", "29", "30", "31", "32", "33", "39"]},
@@ -83,11 +83,19 @@ def send_line_push(target_id, message_text):
     except Exception as e: print(f"LINE 推播失敗: {e}")
 
 def notify_np_new_task(task):
+    # 深層連結：跳轉後會自動標記任務
     liff_link = f"https://liff.line.me/{LIFF_ID}?target_task_id={task['id']}"
-    msg = ( ...略... )
-    
-    # 請把原本的 # 拿掉，並改成下面這樣，讓系統先發給您自己測試：
-    send_line_push(st.session_state.line_userId, msg)
+    msg = (
+        f"🚨 【新任務派發】 {task['priority']}\n"
+        f"📍 位置: {task['bed']}\n"
+        f"📝 任務: {task['task_type']}\n"
+        f"📋 說明: {task['details']}\n"
+        f"👨‍⚕️ 派發: {task['requester']}\n"
+        f"🔗 點此立即接單:\n{liff_link}"
+    )
+    # 測試期間：發送給當下登入的使用者自己
+    if st.session_state.line_userId:
+        send_line_push(st.session_state.line_userId, msg)
 
 def notify_doctor_task_completed(task):
     # 從資料庫找當初派單醫師的 LINE User ID
@@ -182,7 +190,7 @@ def assigner_interface(view_role="護理師"):
             if nlp_input:
                 ai_result = parse_nlp_to_task(nlp_input)
                 st.info(f"**AI 解析結果**：\n📍 位置: {ai_result['bed']}\n📝 項目: {ai_result['type']}\n🚨 優先級: {ai_result['priority']}")
-                # 實務上這裡會將解析結果寫入下方的 st.session_state 來改變表單的預設值
+                # 實務上這裡會將解析結果寫入下方表單的預設值，此處展示概念
             else: st.warning("請先輸入內容")
             
     st.markdown("---")
@@ -226,7 +234,7 @@ def assigner_interface(view_role="護理師"):
         }
         tasks = load_data(DATA_FILE, []); tasks.append(new_task); save_data(tasks, DATA_FILE)
         
-        # 呼叫推播給專師群
+        # 呼叫推播給專師群 (目前設定為發給測試者自己)
         notify_np_new_task(new_task)
         
         st.session_state.success_message = f"✅ 已成功送出 【 {final_bed} 】 的 【{task_type}】 請求！"
@@ -353,7 +361,7 @@ def main():
                 profile_data = profile_res.json()
                 st.session_state.nickname = profile_data.get("displayName")
                 st.session_state.line_userId = profile_data.get("userId") # 抓取 User ID!
-                st.session_state.role = "專科護理師" # 測試期間預設
+                st.session_state.role = "專科護理師" # 測試期間預設為專師
                 st.session_state.is_logged_in = True
                 
                 # 登入成功後，把名字和 LINE ID 綁定存起來，方便以後推播找人
