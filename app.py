@@ -83,20 +83,11 @@ def send_line_push(target_id, message_text):
     except Exception as e: print(f"LINE 推播失敗: {e}")
 
 def notify_np_new_task(task):
-    # 假設專師群組的 ID (實務上可以發給特定群組，這裡先示範訊息格式)
-    # 若無群組 ID，此處程式碼僅作格式展示
     liff_link = f"https://liff.line.me/{LIFF_ID}?target_task_id={task['id']}"
-    msg = (
-        f"🚨 【新任務派發】 {task['priority']}\n"
-        f"📍 位置: {task['bed']}\n"
-        f"📝 任務: {task['task_type']}\n"
-        f"📋 說明: {task['details']}\n"
-        f"👨‍⚕️ 派發: {task['requester']}\n"
-        f"🔗 點此立即接單:\n{liff_link}"
-    )
-    # 這裡可以替換成專師群組的 Group ID
-    # send_line_push("YOUR_NP_GROUP_ID", msg)
-    print("通知專師:", msg) # 測試用
+    msg = ( ...略... )
+    
+    # 請把原本的 # 拿掉，並改成下面這樣，讓系統先發給您自己測試：
+    send_line_push(st.session_state.line_userId, msg)
 
 def notify_doctor_task_completed(task):
     # 從資料庫找當初派單醫師的 LINE User ID
