@@ -72,6 +72,7 @@ if not st.session_state.is_standby and st.session_state.op_mode_start:
 refresh_interval = 10000 if st.session_state.is_standby else 300000
 count = st_autorefresh(interval=refresh_interval, limit=None, key="data_sync_refresh")
 
+# --- 資料庫獨立讀寫函數 ---
 def load_data():
     if not os.path.exists(DATA_FILE): return []
     try:
@@ -96,6 +97,16 @@ def load_online_users():
 
 def save_online_users(data):
     with open(ONLINE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def load_user_map():
+    if not os.path.exists(USER_ID_MAP_FILE): return {}
+    try:
+        with open(USER_ID_MAP_FILE, "r", encoding="utf-8") as f: return json.load(f)
+    except Exception as e: return {}
+
+def save_user_map(data):
+    with open(USER_ID_MAP_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 def update_online_status(nickname, role):
@@ -155,14 +166,14 @@ def notify_np_new_task(task):
         
     # 發送給線上專師
     online_users = load_online_users()
-    user_map = load_data(USER_ID_MAP_FILE, {}) if os.path.exists(USER_ID_MAP_FILE) else {}
+    user_map = load_user_map()
     for nickname, info in online_users.items():
         if info.get("role") == "專科護理師" and nickname != st.session_state.nickname:
             line_id = user_map.get(nickname)
             if line_id: send_line_push(line_id, msg)
 
 def notify_doctor_task_completed(task):
-    user_map = load_data(USER_ID_MAP_FILE, {}) if os.path.exists(USER_ID_MAP_FILE) else {}
+    user_map = load_user_map()
     doc_line_id = user_map.get(task['requester'])
     
     if doc_line_id:
@@ -275,7 +286,7 @@ def confirm_dispatch_dialog(new_task, require_prep=False, require_hd_consent=Fal
                     else: new_task['details'] += f" | 同意書: 已完成"
                         
                 tasks = load_data(); tasks.append(new_task); save_data(tasks)
-                notify_np_new_task(new_task) # 呼叫新版推播
+                notify_np_new_task(new_task) 
                 
                 st.session_state.form_id += 1  
                 st.session_state.success_message = f"✅ 已成功送出 【 {new_task['bed']} 】 的 【{new_task['task_type']}】 請求！"
@@ -337,7 +348,7 @@ def np_feedback_dialog(task_id, is_doc_assisted=False):
                 else: latest_tasks[i]['handler'] = st.session_state.nickname
                 latest_tasks[i]['feedback'] = feedback_text
                 
-                notify_doctor_task_completed(latest_tasks[i]) # 呼叫結案推播
+                notify_doctor_task_completed(latest_tasks[i]) 
                 
         save_data(latest_tasks); st.session_state.success_message = "✅ 任務結案與回報完成！"
         reset_to_standby(); st.rerun()
@@ -466,6 +477,7 @@ def assigner_interface(view_role="護理師"):
             
         elif task_type == "會診":
             st.write("會診科別 (可複選):")
+            # 這裡加入了 Neuro 與 Psy
             selected_depts = checkbox_matrix(["ENT (耳鼻喉科)", "OPH (眼科)", "PS (整形外科)", "GS (一般外科)", "CVS (心臟血管外科)", "GU (泌尿科)", "Ortho (骨科)", "NS (神經外科)", "GYN (婦產科)", "CV (心臟內科)", "Hospice (安寧/家醫科)", "INF (感染科)", "Neuro (神經內科)", "Psy (精神科)"], "dept", num_columns=4)
             custom_dept = st.text_input("其他會診科別 (自行輸入)", key=k("custom_dept"))
             if custom_dept: selected_depts.append(custom_dept)
@@ -697,7 +709,6 @@ def backend_interface():
 
 # --- 主程式入口 (處理 OAuth 重新導向與動態身分) ---
 def main():
-    # 攔截 LINE OAuth 的回傳 Code
     if "code" in st.query_params and not st.session_state.is_logged_in:
         code = st.query_params["code"]
         state = st.query_params.get("state", "")
@@ -729,10 +740,9 @@ def main():
                 st.session_state.role = assigned_role
                 st.session_state.is_logged_in = True
                 
-                # 記憶綁定 ID
-                user_map = load_data(USER_ID_MAP_FILE, {}) if os.path.exists(USER_ID_MAP_FILE) else {}
+                user_map = load_user_map()
                 user_map[st.session_state.nickname] = st.session_state.line_userId
-                save_data(user_map, USER_ID_MAP_FILE)
+                save_user_map(user_map)
                 
                 st.query_params.clear()
                 if target_task_id: st.query_params["target_task_id"] = target_task_id
