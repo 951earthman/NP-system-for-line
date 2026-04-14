@@ -74,7 +74,7 @@ def remove_online_status(nickname):
     users = load_data(ONLINE_FILE, {})
     if nickname in users: del users[nickname]; save_data(users, ONLINE_FILE)
 
-# --- 核心：LINE 雙向推播功能 ---
+# --- 核心：LINE 雙向推播與零點擊登入功能 ---
 def send_line_push(target_id, message_text):
     if not LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_ACCESS_TOKEN.startswith("請貼上"): return
     headers = {"Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}", "Content-Type": "application/json"}
@@ -83,34 +83,43 @@ def send_line_push(target_id, message_text):
     except Exception as e: print(f"LINE 推播失敗: {e}")
 
 def notify_np_new_task(task):
-    # 深層連結：跳轉後會自動標記任務
-    liff_link = f"https://liff.line.me/{LIFF_ID}?target_task_id={task['id']}"
+    # 零點擊登入黑科技：把任務 ID 藏在 state 參數裡
+    auth_params = {
+        "response_type": "code", "client_id": LINE_CLIENT_ID,
+        "redirect_uri": REDIRECT_URI, "state": f"task_{task['id']}", "scope": "profile"
+    }
+    direct_link = f"https://access.line.me/oauth2/v2.1/authorize?{urllib.parse.urlencode(auth_params)}"
+    
     msg = (
         f"🚨 【新任務派發】 {task['priority']}\n"
         f"📍 位置: {task['bed']}\n"
         f"📝 任務: {task['task_type']}\n"
         f"📋 說明: {task['details']}\n"
         f"👨‍⚕️ 派發: {task['requester']}\n"
-        f"🔗 點此立即接單:\n{liff_link}"
+        f"🔗 點此一鍵登入並接單:\n{direct_link}"
     )
     # 測試期間：發送給當下登入的使用者自己
     if st.session_state.line_userId:
         send_line_push(st.session_state.line_userId, msg)
 
 def notify_doctor_task_completed(task):
-    # 從資料庫找當初派單醫師的 LINE User ID
     user_map = load_data(USER_ID_MAP_FILE, {})
     doc_line_id = user_map.get(task['requester'])
     
     if doc_line_id:
-        liff_link = f"https://liff.line.me/{LIFF_ID}?target_task_id={task['id']}"
+        auth_params = {
+            "response_type": "code", "client_id": LINE_CLIENT_ID,
+            "redirect_uri": REDIRECT_URI, "state": f"task_{task['id']}", "scope": "profile"
+        }
+        direct_link = f"https://access.line.me/oauth2/v2.1/authorize?{urllib.parse.urlencode(auth_params)}"
+        
         msg = (
             f"✅ 【任務已完成】\n"
             f"📍 位置: {task['bed']}\n"
             f"📝 任務: {task['task_type']}\n"
             f"🧑‍⚕️ 執行專師: {task['handler']}\n"
             f"💬 回報內容: {task['feedback']}\n"
-            f"🔗 點此查看詳情:\n{liff_link}"
+            f"🔗 點此一鍵登入查看:\n{direct_link}"
         )
         send_line_push(doc_line_id, msg)
 
@@ -164,7 +173,6 @@ def login_interface():
 
 # --- 模擬 AI 解析功能 ---
 def parse_nlp_to_task(text):
-    # 這裡未來可接 ChatGPT / Gemini API。現在先用基礎關鍵字辨識展示 UX。
     parsed = {"bed": "未知", "type": "其他", "priority": "🟢 一般", "details": text}
     if "急" in text or "快" in text: parsed["priority"] = "🔴 緊急"
     if "foley" in text.lower() or "尿管" in text: parsed["type"] = "on Foley"
@@ -190,7 +198,6 @@ def assigner_interface(view_role="護理師"):
             if nlp_input:
                 ai_result = parse_nlp_to_task(nlp_input)
                 st.info(f"**AI 解析結果**：\n📍 位置: {ai_result['bed']}\n📝 項目: {ai_result['type']}\n🚨 優先級: {ai_result['priority']}")
-                # 實務上這裡會將解析結果寫入下方表單的預設值，此處展示概念
             else: st.warning("請先輸入內容")
             
     st.markdown("---")
@@ -343,11 +350,13 @@ def whiteboard_interface():
             dfc['complete_time'] = dfc['complete_time'].str[11:16]; dfc.columns = ['完成時間', '位置', '任務', '專師', '派發者', '回報']
             st.dataframe(dfc.sort_values(by='完成時間', ascending=False), use_container_width=True, hide_index=True)
 
-# --- 主程式入口 ---
+# --- 主程式入口 (處理 OAuth 重新導向) ---
 def main():
-    # 攔截 LINE OAuth 的回傳 Code
+    # 攔截 LINE OAuth 的回傳 Code 與藏在裡面的任務 ID
     if "code" in st.query_params and not st.session_state.is_logged_in:
         code = st.query_params["code"]
+        state = st.query_params.get("state", "") # 抓取我們藏的任務 ID
+        
         token_url = "https://api.line.me/oauth2/v2.1/token"
         data = {
             "grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI,
@@ -360,19 +369,21 @@ def main():
             if profile_res.status_code == 200:
                 profile_data = profile_res.json()
                 st.session_state.nickname = profile_data.get("displayName")
-                st.session_state.line_userId = profile_data.get("userId") # 抓取 User ID!
+                st.session_state.line_userId = profile_data.get("userId") 
                 st.session_state.role = "專科護理師" # 測試期間預設為專師
                 st.session_state.is_logged_in = True
                 
-                # 登入成功後，把名字和 LINE ID 綁定存起來，方便以後推播找人
+                # 登入成功後，把名字和 LINE ID 綁定存起來
                 user_map = load_data(USER_ID_MAP_FILE, {})
                 user_map[st.session_state.nickname] = st.session_state.line_userId
                 save_data(user_map, USER_ID_MAP_FILE)
                 
-                # 清除 code 參數，保留可能的 target_task_id
-                target = st.query_params.get("target_task_id")
                 st.query_params.clear()
-                if target: st.query_params["target_task_id"] = target
+                
+                # 如果暗號裡有任務 ID，就把它秀在網址列讓系統高亮！
+                if state.startswith("task_"):
+                    st.query_params["target_task_id"] = state.replace("task_", "")
+                    
                 st.rerun()
             else: st.error("取得 LINE 檔案失敗，請重新登入")
         else: st.error("LINE 登入驗證失敗，請檢查金鑰或 Callback URL")
